@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Asignación de Capillas</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+</head>
+<body class="bg-gray-100 text-gray-800">
+  <header class="bg-white shadow p-4 flex items-center justify-between">
+    <h1 class="text-2xl font-semibold">Asignación de Capillas</h1>
+    <img src="LATINO AMERICANA RECINTO FUNERAL.png" alt="Latinoamericana Recinto Funeral" class="h-12">
+  </header>
+  <main class="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Formulario -->
+    <section class="bg-white p-4 rounded shadow">
+      <h2 class="text-xl font-semibold mb-4">Asignación de Capillas</h2>
+      <form id="assignmentForm" class="space-y-4">
+        <div>
+          <label for="dateInput" class="block font-medium mb-1">Fecha de Velación</label>
+          <input type="text" id="dateInput" readonly class="w-full border rounded p-2 cursor-pointer bg-white" placeholder="Selecciona fecha">
+        </div>
+        <div>
+          <label for="chapelSelect" class="block font-medium mb-1">Capilla</label>
+          <select id="chapelSelect" class="w-full border rounded p-2">
+            <option value="">-- Seleccione Capilla --</option>
+          </select>
+        </div>
+        <div>
+          <label for="timeSelect" class="block font-medium mb-1">Horario Velación</label>
+          <select id="timeSelect" class="w-full border rounded p-2">
+            <option value="">-- Seleccione Horario --</option>
+          </select>
+        </div>
+        <div>
+          <label for="deceasedName" class="block font-medium mb-1">Nombre del Finado</label>
+          <input type="text" id="deceasedName" class="w-full border rounded p-2" placeholder="Nombre del finado">
+        </div>
+        <div>
+          <label for="serviceFolio" class="block font-medium mb-1">Folio de Servicio (S-0 XXXX)</label>
+          <input type="text" id="serviceFolio" class="w-full border rounded p-2" placeholder="Ingrese 4 dígitos">
+        </div>
+        <div class="flex space-x-2">
+          <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded">Guardar</button>
+          <button type="button" id="viewSummaryBtn" class="bg-gray-600 text-white px-4 py-2 rounded">Ver Resumen</button>
+        </div>
+        <div id="message" role="alert" class="mt-2 text-sm"></div>
+      </form>
+    </section>
+    <!-- Listado y Resumen -->
+    <section class="space-y-4">
+      <div class="bg-white p-4 rounded shadow overflow-x-auto">
+        <h2 class="text-xl font-semibold mb-4">Asignaciones Existentes</h2>
+        <table id="assignmentsTable" class="min-w-full table-auto">
+          <thead>
+            <tr class="bg-gray-200">
+              <th class="p-2">Fecha</th>
+              <th class="p-2">Capilla</th>
+              <th class="p-2">Horario</th>
+              <th class="p-2">Folio</th>
+              <th class="p-2">Finado</th>
+              <th class="p-2">Acciones</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="bg-white p-4 rounded shadow overflow-x-auto">
+        <h2 class="text-xl font-semibold mb-4">Resumen de Ocupación (Hoy y Próximos 2 Días)</h2>
+        <div id="summaryTable" class="overflow-x-auto"></div>
+      </div>
+    </section>
+  </main>
+  <footer class="bg-white text-center p-4 text-sm">&copy; 2025 Latinoamericana Recinto Funeral.</footer>
+
+  <script>
+    // Usuario actual y roles
+    const currentUser = localStorage.getItem('currentUser') || prompt('Ingrese su nombre de usuario:');
+    localStorage.setItem('currentUser', currentUser);
+    const isAdmin = currentUser === 'Alejandro Sotelo';
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const chapelSelect = document.getElementById('chapelSelect');
+      const dateInput = document.getElementById('dateInput');
+      const timeSelect = document.getElementById('timeSelect');
+      const deceasedInput = document.getElementById('deceasedName');
+      const folioInput = document.getElementById('serviceFolio');
+      const form = document.getElementById('assignmentForm');
+      const assignmentsTable = document.querySelector('#assignmentsTable tbody');
+      const messageDiv = document.getElementById('message');
+      const summaryTableDiv = document.getElementById('summaryTable');
+      const viewSummaryBtn = document.getElementById('viewSummaryBtn');
+
+      let assignments = JSON.parse(localStorage.getItem('assignments') || '[]');
+      let counter = parseInt(localStorage.getItem('assignmentCounter') || '0', 10);
+
+      const chapels = ['Capilla Del CONSUELO','Capilla MEMORIAL','Capilla SAN JOSE','Capilla RESURRECCION','Capilla SANTO CRISTO','DOMICILIO 1','DOMICILIO 2'];
+      const times = ['5:00 PM a 11:00 PM','6:00 PM a 12:00 AM','6:30 PM a 12:30 AM','7:00 PM a 1:00 AM','7:30 PM a 1:30 AM','8:00 PM a 2:00 AM','8:30 PM a 2:30 AM','9:00 PM a 3:00 AM'];
+      chapels.forEach(ch => chapelSelect.innerHTML += `<option value="${ch}">${ch}</option>`);
+      times.forEach(t => timeSelect.innerHTML += `<option value="${t}">${t}</option>`);
+
+      flatpickr(dateInput, { dateFormat:'Y-m-d', defaultDate:new Date(), allowInput:false, onChange: ([d]) => updateAvailability(d.toISOString().slice(0,10)) });
+
+      const pad4 = num => String(num).padStart(4,'0');
+      function showMessage(text, type='text-red-600') {
+        messageDiv.textContent = text; messageDiv.className = type;
+        setTimeout(() => messageDiv.textContent = '', 3000);
+      }
+      function saveData() { localStorage.setItem('assignments', JSON.stringify(assignments)); localStorage.setItem('assignmentCounter', counter); }
+
+      function updateAvailability(date) {
+        const busy = assignments.filter(a => a.date === date);
+        const busyCh = busy.map(a => a.chapel);
+        const busyTs = busy.map(a => a.time);
+        Array.from(chapelSelect.options).forEach(opt => {
+          if (opt.value && busyCh.includes(opt.value)) { opt.disabled=true; opt.style.color='red'; opt.text='NO DISPONIBLE'; }
+          else { opt.disabled=false; opt.style.color=''; opt.text=opt.value; }
+        });
+        Array.from(timeSelect.options).forEach(opt => {
+          if (opt.value && busyTs.includes(opt.value)) { opt.disabled=true; opt.style.color='red'; opt.text='NO DISPONIBLE'; }
+          else { opt.disabled=false; opt.style.color=''; opt.text=opt.value; }
+        });
+      }
+
+      function renderAssignments() {
+        assignmentsTable.innerHTML='';
+        assignments.forEach((a,i) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="border p-2">${a.date}</td>
+            <td class="border p-2">${a.chapel}</td>
+            <td class="border p-2">${a.time}</td>
+            <td class="border p-2">S-0${pad4(a.folio)}</td>
+            <td class="border p-2">${a.fin}</td>
+            <td class="border p-2">${
+             isAdmin || a.user===currentUser
+               ? `<button data-idx="${i}" class="edit-btn text-blue-600">Editar</button><button data-idx="${i}" class="delete-btn text-red-600 ml-2">Eliminar</button>`
+               : ''
+            }</td>`;
+          assignmentsTable.appendChild(tr);
+        });
+        attachEvents(); updateAvailability(dateInput.value);
+      }
+
+      function getNextDates() { const today=new Date(); return [0,1,2].map(i=>new Date(today.getTime()+i*86400000).toISOString().slice(0,10)); }
+      function updateSummary() {
+        const dates = getNextDates();
+        let html = '<table class="min-w-full table-auto"><thead class="bg-gray-200"><tr><th class="p-2">Capilla</th>';
+        dates.forEach(d=>html+=`<th class="p-2">${d}</th>`);
+        html+='</tr></thead><tbody>';
+        chapels.forEach(ch=>{
+          html+=`<tr><td class="border p-2">${ch}</td>`;
+          dates.forEach(d=>{
+            const ok = assignments.some(a=>a.chapel===ch && a.date===d);
+            html+=`<td class="border p-2 text-center">${ok?'✓':''}</td>`;
+          });
+          html+='</tr>';
+        });
+        html+='</tbody></table>';
+        summaryTableDiv.innerHTML=html;
+      }
+
+      function attachEvents() {
+        document.querySelectorAll('.delete-btn').forEach(btn=>btn.addEventListener('click',e=>{
+          const i=+e.target.dataset.idx; assignments.splice(i,1);
+          saveData(); renderAssignments(); updateSummary();
+          showMessage('Asignación eliminada','text-green-600');
+        }));
+        document.querySelectorAll('.edit-btn').forEach(btn=>btn.addEventListener('click',e=>{
+          const i=+e.target.dataset.idx; const a=assignments[i];
+          chapelSelect.value=a.chapel; dateInput._flatpickr.setDate(a.date);
+          timeSelect.value=a.time; deceasedInput.value=a.fin;
+          folioInput.value=String(a.folio).padStart(4,'0'); assignments.splice(i,1);
+          saveData(); renderAssignments();
+        }));
+      }
+
+      form.addEventListener('submit',e=>{
+        e.preventDefault(); const ch=chapelSelect.value; const dt=dateInput.value;
+        const tm=timeSelect.value; const fn=deceasedInput.value.trim(); const fl=parseInt(folioInput.value,10);
+        if(!ch||!dt||!tm||!fn||!folioInput.value) return showMessage('Complete todos los campos');
+        if(assignments.some(a=>a.chapel===ch&&a.date===dt)) return showMessage('Capilla no disponible');
+        if(assignments.some(a=>a.time===tm&&a.date===dt)) return showMessage('Horario no disponible');
+        if(assignments.some(a=>a.folio===fl)) return showMessage('Folio ya asignado');
+        counter=fl; assignments.push({chapel:ch,date:dt,time:tm,folio:fl,fin:fn,user:currentUser});
+        saveData(); renderAssignments(); updateSummary(); form.reset(); folioInput.value=''; chapelSelect.focus();
+        showMessage('Asignación guardada correctamente','text-green-600');
+      });
+      viewSummaryBtn.addEventListener('click',updateSummary);
+      renderAssignments(); updateSummary();
+    });
+  </script>
+</body>
+</html>
